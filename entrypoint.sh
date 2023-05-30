@@ -12,14 +12,14 @@ NEZHA_PORT="$NEZHA_PORT"
 NEZHA_KEY="$NEZHA_KEY"
 NEZHA_TLS="$NEZHA_TLS"
 
-# Argo 固定域名隧道的两个参数,这个可以填 Json 内容或 Token 内容，获取方式看 https://github.com/fscarmen2/X-for-Glitch，不需要的话可以留空，删除或在这三行最前面加 # 以注释
+# Argo 固定域名隧道的两个参数,这个可以填 Json 内容或 Token 内容，不需要的话可以留空，删除或在这三行最前面加 # 以注释
 ARGO_AUTH="$ARGO_AUTH"
 ARGO_DOMAIN="$ARGO_DOMAIN"
 
 # 安装系统依赖
 check_dependencies() {
-  DEPS_CHECK=("wget" "unzip" "ss")
-  DEPS_INSTALL=(" wget" " unzip" " iproute2")
+  DEPS_CHECK=("wget" "unzip" "ss" "tar")
+  DEPS_INSTALL=(" wget" " unzip" " iproute2" "tar")
   for ((i=0;i<${#DEPS_CHECK[@]};i++)); do [[ ! $(type -p ${DEPS_CHECK[i]}) ]] && DEPS+=${DEPS_INSTALL[i]}; done
   [ -n "$DEPS" ] && { apt-get update >/dev/null 2>&1; apt-get install -y $DEPS >/dev/null 2>&1; }
 }
@@ -216,19 +216,24 @@ generate_config() {
             "tag":"WARP",
             "protocol":"wireguard",
             "settings":{
-                "secretKey":"cKE7LmCF61IhqqABGhvJ44jWXp8fKymcMAEVAzbDF2k=",
+                "secretKey":"YFYOAdbw1bKTHlNNi+aEjBM3BO7unuFC5rOkMRAz9XY=",
                 "address":[
                     "172.16.0.2/32",
-                    "fd01:5ca1:ab1e:823e:e094:eb1c:ff87:1fab/128"
+                    "2606:4700:110:8a36:df92:102a:9602:fa18/128"
                 ],
                 "peers":[
                     {
                         "publicKey":"bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=",
-                        "endpoint":"engage.cloudflareclient.com:2408"
+                        "allowedIPs":[
+                            "0.0.0.0/0",
+                            "::/0"
+                        ],
+                        "endpoint":"162.159.193.10:2408"
                     }
-                ]
+                ],
+                "reserved":[78, 135, 76],
+                "mtu":1280
             }
-        }
     ],
     "routing":{
         "domainStrategy":"AsIs",
@@ -420,10 +425,56 @@ run
 EOF
 }
 
+generate_filebrowser () {
+  cat > filebrowser.sh << EOF
+#!/usr/bin/env bash
+
+# filebrowser 两个参数
+WEB_USERNAME=${WEB_USERNAME}
+WEB_PASSWORD=${WEB_PASSWORD}
+
+# 检测是否已运行
+check_run() {
+  [[ \$(pgrep -lafx filebrowser) ]] && echo "filebrowser 正在运行中" && exit
+}
+
+# 若 ftp argo 域名不设置，则不安装 filebrowser
+check_variable() {
+  [ -z "\${FTP_DOMAIN}" ] && exit
+}
+
+# 下载最新版本 filebrowser
+download_filebrowser() {
+  if [ ! -e filebrowser ]; then
+    URL=\$(wget -qO- "https://api.github.com/repos/filebrowser/filebrowser/releases/latest" | grep -o "https.*linux-amd64.*gz")
+    URL=\${URL:-https://github.com/filebrowser/filebrowser/releases/download/v2.23.0/linux-amd64-filebrowser.tar.gz}
+    wget -O filebrowser.tar.gz \${URL}
+    tar xzvf filebrowser.tar.gz filebrowser
+    rm -f filebrowser.tar.gz
+    chmod +x filebrowser
+  fi
+}
+
+# 运行 filebrowser 服务端
+run() {
+  PASSWORD_HASH=\$(./filebrowser hash \$WEB_PASSWORD)
+  [ -e filebrowser ] && nohup ./filebrowser --port 3333 --username \${WEB_USERNAME} --password "\${PASSWORD_HASH}" >/dev/null 2>&1 &
+}
+
+check_run
+check_variable
+download_filebrowser
+run
+EOF
+}
+
 generate_config
 generate_argo
 generate_nezha
 generate_ttyd
+generate_filebrowser
+
 [ -e nezha.sh ] && bash nezha.sh
 [ -e argo.sh ] && bash argo.sh
 [ -e ttyd.sh ] && bash ttyd.sh
+[ -e filebrowser.sh ] && bash filebrowser.sh
